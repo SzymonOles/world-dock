@@ -2,6 +2,12 @@ import { app, shell, BrowserWindow, ipcMain } from 'electron'
 import { join } from 'path'
 import { is } from '@electron-toolkit/utils'
 import icon from '../../resources/icon.png?asset'
+import { createClient } from '@supabase/supabase-js';
+
+const supabase = createClient(
+  import.meta.env.MAIN_VITE_SUPABASE_URL,
+  import.meta.env.MAIN_VITE_SUPABASE_PUBLISHABLE_KEY,
+);
 
 function createWindow(): void {
   // Create the browser window.
@@ -37,29 +43,71 @@ function createWindow(): void {
 }
 
 app.whenReady().then(() => {
+  // --- HANDLER: Pobieranie portów ---
+  ipcMain.handle('get-ports', async (_event, bounds) => {
+    try {
+      const { data, error } = await supabase
+        .from('port_maps')
+        .select('id, name, center_lng, center_lat')
+        .gte('center_lng', bounds.minLng)
+        .lte('center_lng', bounds.maxLng)
+        .gte('center_lat', bounds.minLat)
+        .lte('center_lat', bounds.maxLat)
+        .limit(100);
 
-  // JEDEN handler dla zapisu portu (Symulacja)
-  ipcMain.handle('save-port-map', async (_event, portData) => {
-    console.log('--- SYMULACJA ZAPISU DO BAZY POSTGRES ---');
-    console.log('Dane odebrane:', JSON.stringify(portData, null, 2));
-
-    // Udajemy opóźnienie sieciowe/zapisu (1.5 sekundy)
-    await new Promise(resolve => setTimeout(resolve, 1500));
-
-    // Zwracamy sukces
-    return {
-      success: true,
-      message: "Dane pomyślnie zapisane w (symulowanej) bazie PostGIS",
-      receivedId: Math.floor(Math.random() * 1000)
-    };
+      if (error) throw error;
+      return { success: true, ports: data };
+    } catch (err) {
+      return { success: false, message: err instanceof Error ? err.message : String(err) };
+    }
   });
 
-  createWindow()
+// main/index.ts
+  ipcMain.handle('save-port-map', async (_event, payload) => {
+    try {
+      const { data: portData, error: portError } = await supabase
+        .from('port_maps')
+        .insert([{
+          name: "WorldDock Port",
+          center_lng: payload.location.lng,
+          center_lat: payload.location.lat,
+          zoom_level: payload.zoom,
+          tile_quality: payload.quality,
+          start_point_json: payload.startPoint
+        }])
+        .select()
+        .single();
+
+      if (portError) throw portError;
+
+      // Mapowanie poligonów (zmieniono z payload.shapes na payload.polygons)
+      const shapesToInsert = payload.polygons.map((poly: any) => ({
+        port_id: portData.id,
+        raw_points: poly // poly to tablica [x1, y1, x2, y2...]
+      }));
+
+      const { error: shapesError } = await supabase
+        .from('port_shapes')
+        .insert(shapesToInsert);
+
+      if (shapesError) throw shapesError;
+
+      return { success: true };
+    } catch (err: any) {
+      console.error('Błąd zapisu:', err);
+      return {
+        success: false,
+        message: err.message || 'Błąd komunikacji z bazą'
+      };
+    }
+  });
+
+  createWindow();
 
   app.on('activate', function () {
     if (BrowserWindow.getAllWindows().length === 0) createWindow()
   })
-})
+});
 
 app.on('window-all-closed', () => {
   if (process.platform !== 'darwin') {

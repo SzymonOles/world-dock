@@ -3,8 +3,8 @@ import { electronAPI } from '@electron-toolkit/preload'
 
 // Custom APIs for renderer
 const api = {
-  // Funkcja, którą wywołamy w React
-  savePortData: (data: any) => ipcRenderer.invoke('save-port-map', data)
+  savePortData: (data: any) => ipcRenderer.invoke('save-port-map', data),
+  getPorts: (bounds: any) => ipcRenderer.invoke('get-ports', bounds)
 }
 
 // Use `contextBridge` APIs to expose Electron APIs to

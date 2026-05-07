@@ -4,4 +4,11 @@ build
 out
 .DS_Store
 .eslintcache
+.idea
+.vscode
 *.log*
+.editorconfig
+.prettierignore
+.prettierrc.yaml
+TODO.md
+/.env

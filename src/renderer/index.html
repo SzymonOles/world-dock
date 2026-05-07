@@ -10,10 +10,14 @@
     default-src 'self';
     script-src 'self' 'unsafe-eval' 'unsafe-inline';
     style-src 'self' 'unsafe-inline';
-    img-src 'self' data: blob: https://server.arcgisonline.com https://demotiles.maplibre.org;
+    img-src 'self' data: blob: https://server.arcgisonline.com https://*.arcgisonline.com;
     child-src 'self' blob:;
     worker-src 'self' blob:;
-    connect-src 'self' https://server.arcgisonline.com https://demotiles.maplibre.org;
+    connect-src 'self'
+                https://server.arcgisonline.com
+                https://*.arcgisonline.com
+                https://*.supabase.co
+                https://demotiles.maplibre.org;
   "
     />
   </head>

@@ -1,2 +1,2 @@
-końcowo przed symulacją użytkownik może dodać przeszkody takie jak statki,
-brak obszaru końcowego
+dodane symulacji
+dodanie edytora lokalnego przed symulacją
