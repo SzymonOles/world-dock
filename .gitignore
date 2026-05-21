@@ -11,4 +11,5 @@ out
 .prettierignore
 .prettierrc.yaml
 TODO.md
-/.env
+.env
+src/renderer/src/App_last.tsx

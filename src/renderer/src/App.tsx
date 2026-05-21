@@ -1,25 +1,30 @@
-import {useState, useEffect, useCallback} from 'react';
+import {useState, useEffect, useCallback, useRef} from 'react';
 import Map from 'react-map-gl/maplibre';
 import {Stage, Layer, Line, Circle, Group, Arrow} from 'react-konva';
 import 'maplibre-gl/dist/maplibre-gl.css';
 import Konva from 'konva';
 import {Marker, Popup} from 'react-map-gl/maplibre';
 
-const MUL_SCALE = 3;
-
 // Stałe wymiary (w metrach)
-const BASE_WIDTH = 1.25 * MUL_SCALE;
-const BASE_HEIGHT = 0.8 * MUL_SCALE;
-const DECK_WIDTH = 0.6 * MUL_SCALE;
-const ARM_WIDTH_THIN = 0.1 * MUL_SCALE;
+const BASE_WIDTH = 1.25;
+const BASE_HEIGHT = 0.8;
+const DECK_WIDTH = 0.6;
+const ARM_WIDTH_THIN = 0.1;
 
 // Stałe łodzi
-const BOAT_WIDTH = 1.85 * MUL_SCALE;    // Szerokość łodzi
-const BOW_NARROW_DIST = 1.0 * MUL_SCALE; // Odległość od dziobu, gdzie zaczyna się zwężenie
+const BOAT_WIDTH = 1.85;    // Szerokość łodzi
+const BOW_NARROW_DIST = 1.0; // Odległość od dziobu, gdzie zaczyna się zwężenie
+const BOAT_LEN = 5.5
 
 declare global {
   interface Window {
     api: {
+      getPortDetails: (portId: number) => Promise<{
+        success: boolean;
+        port?: any;
+        shapes?: any[];
+        message?: string;
+      }>;
       savePortData: (payload: any) => Promise<{
         success: boolean;
         message: string;
@@ -58,9 +63,21 @@ interface EditorState {
 }
 
 function App() {
-  // 0: Home, 1: Wybór lokalizacji, 2: Edytor
-  const [step, setStep] = useState<0 | 1 | 2>(0);
-  const [viewState, setViewState] = useState({longitude: 18.66, latitude: 54.40, zoom: 8});
+  // 0 = home
+  // 1 = wybór lokalizacji
+  // 2 = editor mapping
+  // 3 = konfiguracja symulacji
+  // 4 = ekran symulacji
+  type Step = 0 | 1 | 2 | 3 | 4;
+  const [step, setStep] = useState<Step>(0);  const [viewState, setViewState] = useState({longitude: 18.66, latitude: 54.40, zoom: 8});
+
+  type EditorMode = 'mapping' | 'simulation';
+
+  const [waitingForMap, setWaitingForMap] = useState(false);
+  const [pendingStep, setPendingStep] = useState<Step | null>(null);
+
+  const [editorMode, setEditorMode] = useState<EditorMode>('mapping');
+
   const [tileSize, setTileSize] = useState<number>(256);
 
   const [ports, setPorts] = useState<any[]>([]);
@@ -85,6 +102,7 @@ function App() {
   const [isPanning, setIsPanning] = useState(false);
   const [showControls, setShowControls] = useState(false);
   const [dimensions, setDimensions] = useState({width: window.innerWidth, height: window.innerHeight});
+
 
   const handleSave = async () => {
     if (!startPoint) {
@@ -113,7 +131,7 @@ function App() {
         alert("Pomyślnie zapisano projekt w bazie!");
         setStep(0);
       } else {
-        alert("Błąd zapisu: " + ((response as any).message || "Nieznany błąd"));
+        alert("Błąd zapisuj: " + ((response as any).message || "Nieznany błąd"));
       }
     } catch (error) {
       console.error("Błąd podczas komunikacji z bazą:", error);
@@ -121,7 +139,7 @@ function App() {
     }
   };
 
-  // Funkcja pobierająca porty na podstawie tego, co widać na mapie
+  // Funkcja pobierająca porty na podstawie tego, co wвидно na mapie
   const fetchVisiblePorts = async (view: any) => {
     // Obliczamy granice mapy (uproszczone)
     // MapLibre w evencie onMove udostępnia viewState, ale granice (bounds) najlepiej brać z mapy
@@ -134,6 +152,60 @@ function App() {
     };
     const res = await window.api.getPorts(bounds);
     if (res.success) setPorts(res.ports);
+  };
+
+  const loadPortForSimulation = async (portId: number) => {
+    try {
+      const res = await window.api.getPortDetails(portId);
+
+      if (!res.success || !res.port) {
+        alert(res.message || 'Nie udało się pobrać portu');
+        return;
+      }
+
+      const { port, shapes } = res;
+
+      // viewport
+      setViewState({
+        longitude: port.center_lng,
+        latitude: port.center_lat,
+        zoom: port.zoom_level
+      });
+
+      // jakość tiles
+      setTileSize(port.tile_quality);
+
+      // punkt startowy
+      setStartPoint(port.start_point_json);
+
+      // poligony
+      const loadedPolygons = (shapes ?? []).map((s: any) => s.raw_points);
+      setPolygons(
+        loadedPolygons.length > 0
+          ? loadedPolygons
+          : [[]]
+      );
+
+      setActivePolyIdx(0);
+
+      // reset historii
+      setUndoStack([]);
+      setRedoStack([]);
+
+      // reset zoom/pan stage
+      setStageScale(1);
+      setStagePos({ x: 0, y: 0 });
+
+      // tryb symulacji
+      setEditorMode('simulation');
+
+      setPendingStep(2);
+      setWaitingForMap(true);
+
+    } catch (err) {
+      console.error(err);
+      alert('Błąd ładowania portu');
+    }
   };
 
   // Inicjalne pobranie
@@ -150,7 +222,7 @@ function App() {
   const getMetersPerPixel = useCallback(() => {
     const latitude = viewState.latitude;
     const zoom = viewState.zoom;
-    return (Math.cos(latitude * Math.PI / 180) * 40075016.686) / Math.pow(2, zoom + 8);
+    return (Math.cos(latitude * Math.PI / 180) * 40075016.686) / Math.pow(2, zoom + 8) / 3;
   }, [viewState.latitude, viewState.zoom]);
 
   const getCurrentState = useCallback((): EditorState => ({
@@ -163,6 +235,200 @@ function App() {
     setUndoStack(prev => [...prev, getCurrentState()]);
     setRedoStack([]);
   }, [getCurrentState]);
+
+  // --- STANY I REFY DLA EKRANU SYMULACJI (STEP 4) ---
+  const [simBoat, setSimBoat] = useState<{ x: number; y: number; rotation: number } | null>(null);
+  const [throttle, setThrottle] = useState<number>(0); // Zakres: -50% do 100%
+  const [rudder, setRudder] = useState<number>(0);     // Zakres: -45° do 45°
+  const [isSteeringWithMouse, setIsSteeringWithMouse] = useState(false);
+  const [showMapBackground, setShowMapBackground] = useState<boolean>(true); // Przełącznik podkładu mapowego
+
+  // Refy zapewniające płynny dostęp do stanów w pętli animacji bez jej restartowania
+  const throttleRef = useRef(0);
+  const rudderRef = useRef(0);
+  const keysPressed = useRef<Set<string>>(new Set());
+
+  // Synchronizacja zmiennych ref ze stanem Reacta (dla myszy i UI)
+  useEffect(() => { throttleRef.current = throttle; }, [throttle]);
+  useEffect(() => { rudderRef.current = rudder; }, [rudder]);
+
+  // Reset symulacji do punktu początkowego
+  const resetSimulation = useCallback(() => {
+    if (startPoint) {
+      setSimBoat({
+        x: startPoint.x,
+        y: startPoint.y,
+        rotation: startPoint.rotation
+      });
+    }
+    setThrottle(0);
+    setRudder(0);
+  }, [startPoint]);
+
+  // Inicjalizacja pozycji przy wejściu do kroku 4
+  useEffect(() => {
+    if (step === 4) {
+      resetSimulation();
+    }
+  }, [step, resetSimulation]);
+
+  // Słuchacz klawiatury wspierający jednoczesne wciskanie wielu klawiszy (kombinacje W+A itp.)
+  useEffect(() => {
+    if (step !== 4) return;
+
+    const handleKeyDown = (e: KeyboardEvent) => {
+      keysPressed.current.add(e.key.toLowerCase());
+    };
+
+    const handleKeyUp = (e: KeyboardEvent) => {
+      keysPressed.current.delete(e.key.toLowerCase());
+    };
+
+    // Zablokowanie domyślnego zachowania scrolla okna przeglądarki
+    const handleWindowWheel = (e: WheelEvent) => {
+      e.preventDefault();
+    };
+
+    window.addEventListener('keydown', handleKeyDown);
+    window.addEventListener('keyup', handleKeyUp);
+    window.addEventListener('wheel', handleWindowWheel, { passive: false });
+
+    return () => {
+      window.removeEventListener('keydown', handleKeyDown);
+      window.removeEventListener('keyup', handleKeyUp);
+      window.removeEventListener('wheel', handleWindowWheel);
+      keysPressed.current.clear();
+    };
+  }, [step]);
+
+  // Algorytm Ray-Casting (punkt w wielokącie) do wykrywania kolizji
+  const isPointInPolygon = (x: number, y: number, poly: number[]) => {
+    let inside = false;
+    for (let i = 0, j = poly.length - 2; i < poly.length; i += 2) {
+      const xi = poly[i], yi = poly[i + 1];
+      const xj = poly[j], yj = poly[j + 1];
+      const intersect = ((yi > y) !== (yj > y)) && (x < (xj - xi) * (y - yi) / (yj - yi) + xi);
+      if (intersect) inside = !inside;
+      j = i;
+    }
+    return inside;
+  };
+
+  // Generator punktów kształtu łodzi symulacyjnej
+  const getSimBoatPoints = () => {
+    const mpp = getMetersPerPixel();
+    const bW = (BOAT_WIDTH / 2) / mpp;
+    const length = (BOAT_LEN) / mpp;
+    const narrowStart = (length / 2) - (BOW_NARROW_DIST / mpp);
+    const smoothX = narrowStart + ((length / 2) - narrowStart) * 0.5;
+    const smoothW = bW * 0.7;
+
+    const xRear = -length / 2;
+    const xBow = length / 2;
+
+    return [
+      xRear, -bW,
+      narrowStart, -bW,
+      smoothX, -smoothW,
+      xBow, 0,
+      smoothX, smoothW,
+      narrowStart, bW,
+      xRear, bW
+    ];
+  };
+
+  // Naprawiona pętla fizyki i detekcji kolizji czasu rzeczywistego
+  useEffect(() => {
+    // Zabezpieczenie: pętla startuje ZAWSZE gdy jesteśmy w kroku 4,
+    // nie czekając na asynchroniczne ustawienie stanu simBoat
+    if (step !== 4) return;
+
+    let animId: number;
+
+    const updatePhysics = () => {
+      // 1. Przetwarzanie wejścia klawiatury (Wsparcie dla wciśniętych kombinacji klawiszy jednocześnie)
+      let currentThrottle = throttleRef.current;
+      let currentRudder = rudderRef.current;
+
+      let keysChanged = false;
+      if (keysPressed.current.has('w')) {
+        currentThrottle = Math.min(100, currentThrottle + 1.2);
+        keysChanged = true;
+      }
+      if (keysPressed.current.has('s')) {
+        currentThrottle = Math.max(-50, currentThrottle - 1.2);
+        keysChanged = true;
+      }
+      if (keysChanged) {
+        setThrottle(Math.round(currentThrottle));
+      }
+
+      let rudderChanged = false;
+      if (keysPressed.current.has('a') || keysPressed.current.has('arrowleft')) {
+        currentRudder = Math.max(-45, currentRudder - 1.5);
+        rudderChanged = true;
+      }
+      if (keysPressed.current.has('d') || keysPressed.current.has('arrowright')) {
+        currentRudder = Math.min(45, currentRudder + 1.5);
+        rudderChanged = true;
+      }
+      if (rudderChanged) {
+        setRudder(currentRudder);
+      }
+
+      // 2. Kalkulacja przemieszczenia i obrotu statku
+      setSimBoat(prev => {
+        // POPRAWKA: Jeśli stan łodzi jeszcze się nie załadował z resetSimulation(),
+        // po prostu pomijamy tę klatkę i czekamy na kolejną, ale NIE ubijamy pętli!
+        if (!prev) return null;
+
+        const mpp = getMetersPerPixel();
+        const speedMetersPerSecond = (currentThrottle / 100) * 5.0;
+        const currentSpeedPixels = (speedMetersPerSecond * 0.016) / mpp;
+
+        const rotationSpeedPerFrame = (currentRudder / 45) * 30 * 0.016 * (currentThrottle / 100);
+        const nextRotation = prev.rotation + rotationSpeedPerFrame;
+
+        const rad = (nextRotation * Math.PI) / 180;
+        const nextX = prev.x + Math.cos(rad) * currentSpeedPixels;
+        const nextY = prev.y + Math.sin(rad) * currentSpeedPixels;
+
+        // Sprawdzenie punktów kadłuba pod kątem kolizji z poligonami mapy
+        const localPts = getSimBoatPoints();
+        const cosR = Math.cos(rad);
+        const sinR = Math.sin(rad);
+        let collisionDetected = false;
+
+        for (let i = 0; i < localPts.length; i += 2) {
+          const lx = localPts[i];
+          const ly = localPts[i + 1];
+          const wx = nextX + (lx * cosR - ly * sinR);
+          const wy = nextY + (lx * sinR + ly * cosR);
+
+          for (const poly of polygons) {
+            if (poly.length < 6) continue;
+            if (isPointInPolygon(wx, wy, poly)) {
+              collisionDetected = true;
+              break;
+            }
+          }
+          if (collisionDetected) break;
+        }
+
+        if (collisionDetected) {
+          return { ...prev, rotation: nextRotation };
+        }
+
+        return { x: nextX, y: nextY, rotation: nextRotation };
+      });
+
+      // Kontynuowanie pętli w następnej klatce animacji
+      animId = requestAnimationFrame(updatePhysics);
+    };
+
+    animId = requestAnimationFrame(updatePhysics);
+    return () => cancelAnimationFrame(animId);
+  }, [step, polygons, getMetersPerPixel]);
 
   // Generator kształtu bomów
   const generateBoomPoints = (p1: { x: number, y: number }, p2: { x: number, y: number }, type: 'no-deck' | 'deck') => {
@@ -379,6 +645,14 @@ function App() {
             mapStyle={getMapStyle(256) as any}
             style={{width: '100%', height: '100%'}}
             dragRotate={false}
+            onRender={() => {
+              if (!waitingForMap) return;
+              if (pendingStep === null) return;
+
+              setStep(pendingStep);
+              setPendingStep(null);
+              setWaitingForMap(false);
+            }}
           >
             {ports.map(port => (
               <Marker
@@ -403,7 +677,7 @@ function App() {
               >
                 <div style={{padding: '5px', textAlign: 'center'}}>
                   <button
-                    onClick={() => alert("Rozpoczynanie symulacji")}
+                    onClick={() => loadPortForSimulation(selectedPort.id)}
                     style={{
                       background: '#007bff',
                       color: 'white',
@@ -413,7 +687,7 @@ function App() {
                       cursor: 'pointer'
                     }}
                   >
-                    Rozpocznij symulację
+                    Przygotuj symulację
                   </button>
                 </div>
               </Popup>
@@ -500,6 +774,7 @@ function App() {
         }}>
           <button onClick={() => {
             resetEditorState();
+            setEditorMode('mapping');
             setStep(2);
           }} style={{
             padding: '15px 40px',
@@ -516,6 +791,372 @@ function App() {
     );
   }
 
+  if (step === 3) {
+    return (
+      <div
+        style={{
+          width: '100vw',
+          height: '100vh',
+          background: '#111',
+          color: 'white',
+          display: 'flex',
+          flexDirection: 'column'
+        }}
+      >
+        <header
+          style={{
+            height: '70px',
+            background: '#222',
+            display: 'flex',
+            alignItems: 'center',
+            padding: '0 20px',
+            borderBottom: '1px solid #444'
+          }}
+        >
+          <button
+            onClick={() => setStep(2)}
+            style={{
+              padding: '8px 12px',
+              background: '#444',
+              color: '#fff',
+              border: 'none',
+              borderRadius: '4px',
+              cursor: 'pointer'
+            }}
+          >
+            Wróć
+          </button>
+
+          <h2 style={{ marginLeft: '20px' }}>
+            Konfiguracja symulacji
+          </h2>
+        </header>
+
+        <div
+          style={{
+            flex: 1,
+            display: 'flex',
+            justifyContent: 'center',
+            alignItems: 'center'
+          }}
+        >
+          <div>
+            Jakieś ustawienia...
+          </div>
+          <button
+            onClick={() => setStep(4)}
+            style={{
+              padding: '20px 40px',
+              fontSize: '22px',
+              background: '#4CAF50',
+              border: 'none',
+              borderRadius: '8px',
+              color: 'white',
+              cursor: 'pointer',
+              fontWeight: 'bold'
+            }}
+          >
+            Rozpocznij symulację
+          </button>
+        </div>
+      </div>
+    );
+  }
+
+  if (step === 4) {
+    return (
+      <div style={{width: '100vw', height: '100vh', display: 'flex', flexDirection: 'column', overflow: 'hidden', position: 'relative'}}>
+        {/* NAGŁÓWEK SYMULACJI Z PRZYCISKAMI */}
+        <header style={{
+          height: '70px',
+          background: '#111',
+          display: 'flex',
+          alignItems: 'center',
+          padding: '0 20px',
+          borderBottom: '1px solid #333',
+          zIndex: 100,
+          gap: '15px'
+        }}>
+          <button
+            onClick={() => setStep(3)}
+            style={{
+              padding: '8px 12px',
+              background: '#444',
+              color: '#fff',
+              border: 'none',
+              borderRadius: '4px',
+              cursor: 'pointer'
+            }}
+          >
+            Wróć
+          </button>
+
+          <button
+            onClick={resetSimulation}
+            style={{
+              padding: '8px 16px',
+              background: '#dc3545',
+              color: '#fff',
+              border: 'none',
+              borderRadius: '4px',
+              cursor: 'pointer',
+              fontWeight: 'bold',
+              transition: 'background 0.2s'
+            }}
+            onMouseEnter={(e) => (e.currentTarget.style.background = '#bd2130')}
+            onMouseLeave={(e) => (e.currentTarget.style.background = '#dc3545')}
+          >
+            🔄 Resetuj symulację
+          </button>
+
+          {/* NOWOŚĆ: PRZEŁĄCZNIK PODKŁADU MAPY */}
+          <label style={{
+            display: 'flex',
+            alignItems: 'center',
+            gap: '8px',
+            color: '#fff',
+            fontSize: '13px',
+            cursor: 'pointer',
+            background: '#222',
+            padding: '7px 14px',
+            borderRadius: '4px',
+            border: '1px solid #444',
+            userSelect: 'none',
+            fontWeight: '500'
+          }}>
+            <input
+              type="checkbox"
+              checked={showMapBackground}
+              onChange={(e) => setShowMapBackground(e.target.checked)}
+              style={{ cursor: 'pointer', width: '15px', height: '15px' }}
+            />
+            🗺️ Pokaż mapę satelitarną
+          </label>
+
+          <h2 style={{ margin: 0, color: '#fff', fontSize: '18px', marginLeft: 'auto' }}>Ekran Symulacji</h2>
+        </header>
+
+        {/* KONTENER SYMULACJI - Dynamiczne tło: czarne dla mapy, morskie niebieskie gdy mapa wyłączona */}
+        <div style={{flex: 1, position: 'relative', background: showMapBackground ? '#000' : '#1a3a5f'}}>
+          {/* WARUNKOWE RENDEROWANIE MAPY JAKO NIERUCHOMEGO TŁA */}
+          {showMapBackground && (
+            <div style={{
+              position: 'absolute',
+              width: '100%',
+              height: '100%',
+              transform: `translate(${stagePos.x}px, ${stagePos.y}px) scale(${stageScale})`,
+              transformOrigin: '0 0',
+              pointerEvents: 'none'
+            }}>
+              <Map
+                interactive={false}
+                {...viewState}
+                mapStyle={getMapStyle(tileSize) as any}
+                style={{width: '100%', height: '100%'}}
+              />
+            </div>
+          )}
+
+          {/* WARSTWA INTERAKTYWNA KONVA */}
+          <Stage
+            width={dimensions.width}
+            height={dimensions.height - 70}
+            onMouseDown={(e) => {
+              if (e.evt.button === 0) {
+                // LPM rozpoczyna płynne sterowanie myszą lewo/prawo
+                setIsSteeringWithMouse(true);
+              } else if (e.evt.button === 1) {
+                // Kliknięcie kółka myszy (ŚPM) resetuje manetkę do zera
+                setThrottle(0);
+              } else if (e.evt.button === 2) {
+                // Prawy przycisk myszy włącza panowanie widoku kamery
+                setIsPanning(true);
+              }
+            }}
+            onMouseMove={(e) => {
+              // Panowanie widoku za pomocą PPM
+              if (isPanning) {
+                setStagePos(prev => ({
+                  x: prev.x + e.evt.movementX,
+                  y: prev.y + e.evt.movementY
+                }));
+              }
+              // Sterowanie płynne za pomocą LPM (Zmniejszona czułość: 0.15)
+              if (isSteeringWithMouse) {
+                setRudder(prev => {
+                  const nextRudder = prev + e.evt.movementX * 0.15;
+                  return Math.max(-45, Math.min(45, nextRudder));
+                });
+              }
+            }}
+            onMouseUp={() => {
+              setIsPanning(false);
+              setIsSteeringWithMouse(false);
+            }}
+            onMouseLeave={() => {
+              setIsPanning(false);
+              setIsSteeringWithMouse(false);
+            }}
+            onWheel={(e) => {
+              // NOWOŚĆ: Skrót Shift + Scroll kontroluje przybliżenie i oddalenie mapy
+              if (e.evt.shiftKey) {
+                const stage = e.target.getStage();
+                if (!stage) return;
+                const oldScale = stageScale;
+                const pointer = stage.getPointerPosition();
+                if (!pointer) return;
+
+                const mousePointTo = {
+                  x: (pointer.x - stagePos.x) / oldScale,
+                  y: (pointer.y - stagePos.y) / oldScale
+                };
+                const newScale = e.evt.deltaY < 0 ? oldScale * 1.1 : oldScale / 1.1;
+                setStageScale(newScale);
+                setStagePos({
+                  x: pointer.x - mousePointTo.x * newScale,
+                  y: pointer.y - mousePointTo.y * newScale
+                });
+              } else {
+                // Sam Scroll kontroluje manetkę gazu
+                setThrottle(prev => {
+                  const delta = e.evt.deltaY < 0 ? 5 : -5;
+                  return Math.max(-50, Math.min(100, prev + delta));
+                });
+              }
+            }}
+            onContextMenu={(e) => e.evt.preventDefault()}
+          >
+            <Layer x={stagePos.x} y={stagePos.y} scaleX={stageScale} scaleY={stageScale}>
+              {/* Wyświetlanie zablokowanych poligonów */}
+              {polygons.map((polyPoints, polyIdx) => (
+                <Line
+                  key={polyIdx}
+                  points={polyPoints}
+                  fill="rgba(255, 255, 255, 0.15)"
+                  stroke="rgba(255, 255, 255, 0.5)"
+                  strokeWidth={1 / stageScale}
+                  closed={polyPoints.length >= 6}
+                />
+              ))}
+
+              {/* Renderowanie kontrolowanego statku */}
+              {simBoat && (
+                <Group x={simBoat.x} y={simBoat.y} rotation={simBoat.rotation}>
+                  <Line
+                    points={getSimBoatPoints()}
+                    fill="rgba(0, 123, 255, 0.75)"
+                    stroke="#007bff"
+                    strokeWidth={2 / stageScale}
+                    closed={true}
+                  />
+                </Group>
+              )}
+            </Layer>
+          </Stage>
+
+          {/* UAKTUALNIONA LEGENDA INTERFEJSU */}
+          <div style={{
+            position: 'absolute',
+            top: '20px',
+            left: '20px',
+            background: 'rgba(20, 20, 20, 0.85)',
+            padding: '12px 15px',
+            borderRadius: '6px',
+            border: '1px solid #444',
+            color: '#eee',
+            fontSize: '12px',
+            lineHeight: '1.6',
+            pointerEvents: 'none'
+          }}>
+            <strong style={{color: '#4CAF50'}}>Sterowanie symulacją:</strong>
+            <ul style={{margin: '5px 0 0 0', paddingLeft: '18px'}}>
+              <li>⌨️ <strong>Klawisze W / S lub Kółko:</strong> Sterowanie manetką </li>
+              <li>🖱️ <strong>Kliknięcie kółka (ŚPM):</strong> Szybkie zerowanie manetki (Luz)</li>
+              <li>🖱️ <strong>Klawisze Shift + Kółko myszy:</strong> Przybliżanie / Oddalanie widoku</li>
+              <li>🖱️ <strong>Trzymanie PPM + Ruch myszą:</strong> Przesuwanie widoku kamery</li>
+              <li>🖱️ <strong>Trzymanie LPM + Ruch myszą (L/P):</strong> Płynne sterowanie kołem sterowym (Czułe)</li>
+              <li>⌨️ <strong>Klawisze A / D lub Strzałki:</strong> Alternatywne skręcanie sterem</li>
+            </ul>
+          </div>
+
+          {/* HUD: PIONOWA MANETKA */}
+          <div style={{
+            position: 'absolute',
+            right: '30px',
+            top: '50%',
+            transform: 'translateY(-50%)',
+            width: '65px',
+            height: '260px',
+            background: 'rgba(25, 25, 25, 0.9)',
+            border: '2px solid #444',
+            borderRadius: '8px',
+            display: 'flex',
+            flexDirection: 'column',
+            alignItems: 'center',
+            justifyContent: 'space-between',
+            padding: '15px 5px',
+            boxShadow: '0 8px 24px rgba(0,0,0,0.6)',
+            fontFamily: 'monospace',
+            userSelect: 'none'
+          }}>
+            <div style={{ fontSize: '10px', color: '#ff4d4d', fontWeight: 'bold' }}>NAPRZÓD</div>
+            <div style={{ position: 'relative', width: '4px', height: '150px', background: '#333', borderRadius: '2px' }}>
+              <div style={{ position: 'absolute', bottom: '33.33%', left: '-8px', width: '20px', height: '2px', background: '#888' }} />
+              <div style={{
+                position: 'absolute',
+                bottom: `${((throttle + 50) / 150) * 100}%`,
+                left: '-18px',
+                width: '40px',
+                height: '4px',
+                background: throttle === 0 ? '#fff' : throttle > 0 ? '#4CAF50' : '#ff9800',
+                boxShadow: throttle === 0 ? 'none' : throttle > 0 ? '0 0 8px #4CAF50' : '0 0 8px #4CAF50',
+              }} />
+            </div>
+            <div style={{ fontSize: '10px', color: '#4da6ff', fontWeight: 'bold' }}>WSTECZ</div>
+            <div style={{ fontSize: '13px', fontWeight: 'bold', color: '#fff', background: '#222', padding: '3px 6px', borderRadius: '4px', border: '1px solid #444' }}>
+              {throttle}%
+            </div>
+          </div>
+
+          {/* HUD: POZIOMY STER */}
+          <div style={{
+            position: 'absolute',
+            bottom: '25px',
+            left: '50%',
+            transform: 'translateX(-50%)',
+            background: 'rgba(25, 25, 25, 0.9)',
+            border: '2px solid #444',
+            borderRadius: '8px',
+            padding: '12px 25px',
+            boxShadow: '0 8px 24px rgba(0,0,0,0.6)',
+            display: 'flex',
+            flexDirection: 'column',
+            alignItems: 'center',
+            userSelect: 'none'
+          }}>
+            <svg width="160" height="85" style={{ overflow: 'visible' }}>
+              <path d="M 10 80 A 70 70 0 0 1 150 80" fill="none" stroke="#444" strokeWidth="4" strokeLinecap="round" />
+              <path d="M 25 80 A 55 55 0 0 1 135 80" fill="none" stroke="#666" strokeWidth="1" strokeDasharray="3 3" />
+              <line x1="80" y1="80" x2="80" y2="10" stroke="#555" strokeWidth="1" strokeDasharray="2 2" />
+
+              {/* ZAOKRĄGLANIE STOPNI NA GRAFICE UI */}
+              <g transform={`rotate(${Math.round(rudder)}, 80, 80)`}>
+                <line x1="80" y1="80" x2="80" y2="25" stroke="#4CAF50" strokeWidth="4" strokeLinecap="round" />
+                <polygon points="80,12 73,28 87,28" fill="#4CAF50" />
+              </g>
+              <circle cx="80" cy="80" r="6" fill="#fff" stroke="#222" strokeWidth="2" />
+            </svg>
+            {/* ZAOKRĄGLANIE STOPNI NA WYŚWIETLACZU TEKSTOWYM HUD */}
+            <div style={{ color: '#fff', fontSize: '13px', fontFamily: 'monospace', fontWeight: 'bold', marginTop: '6px' }}>
+              STER: {Math.round(Math.abs(rudder))}° {Math.round(rudder) === 0 ? '0' : Math.round(rudder) > 0 ? 'PRAWA ▶' : '◀ LEWA'}
+            </div>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  // step === 2
   return (
     <div style={{width: '100vw', height: '100vh', display: 'flex', flexDirection: 'column', overflow: 'hidden'}}>
       <header style={{
@@ -531,7 +1172,7 @@ function App() {
         gap: '10px'
       }}>
         <div style={{display: 'flex', gap: '8px', alignItems: 'center'}}>
-          <button onClick={() => setStep(1)} style={{
+          <button onClick={() => setStep(0)} style={{
             padding: '8px 12px',
             background: '#444',
             color: '#fff',
@@ -640,16 +1281,37 @@ function App() {
             borderRadius: '4px'
           }}>↪
           </button>
-          <button onClick={handleSave} style={{
-            background: '#4CAF50',
-            color: 'white',
-            border: 'none',
-            padding: '8px 20px',
-            borderRadius: '4px',
-            cursor: 'pointer',
-            fontWeight: 'bold'
-          }}>Zapisz
-          </button>
+          {editorMode === 'mapping' ? (
+            <button
+              onClick={handleSave}
+              style={{
+                background: '#4CAF50',
+                color: 'white',
+                border: 'none',
+                padding: '8px 20px',
+                borderRadius: '4px',
+                cursor: 'pointer',
+                fontWeight: 'bold'
+              }}
+            >
+              Zapisz
+            </button>
+          ) : (
+            <button
+              onClick={() => setStep(3)}
+              style={{
+                background: '#2196F3',
+                color: 'white',
+                border: 'none',
+                padding: '8px 20px',
+                borderRadius: '4px',
+                cursor: 'pointer',
+                fontWeight: 'bold'
+              }}
+            >
+              Kontynuuj
+            </button>
+          )}
         </div>
       </header>
 
@@ -662,8 +1324,12 @@ function App() {
           transformOrigin: '0 0',
           pointerEvents: 'none'
         }}>
-          <Map interactive={false} {...viewState} mapStyle={getMapStyle(tileSize) as any}
-               style={{width: '100%', height: '100%'}}/>
+          <Map
+            interactive={false}
+            {...viewState}
+            mapStyle={getMapStyle(tileSize) as any}
+            style={{width: '100%', height: '100%'}}
+          />
         </div>
         <Stage
           width={dimensions.width}

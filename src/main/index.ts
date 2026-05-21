@@ -62,6 +62,41 @@ app.whenReady().then(() => {
     }
   });
 
+  // --- HANDLER: Pobieranie szczegółów portu i jego kształtów pod symulację ---
+  ipcMain.handle('get-port-details', async (_event, portId) => {
+    try {
+      // 1. Pobieramy główne metadane portu (lokalizacja, start_point, zoom)
+      const { data: portData, error: portError } = await supabase
+        .from('port_maps')
+        .select('*')
+        .eq('id', portId)
+        .single();
+
+      if (portError) throw portError;
+
+      // 2. Pobieramy wszystkie powiązane kształty (tablice współrzędnych)
+      const { data: shapesData, error: shapesError } = await supabase
+        .from('port_shapes')
+        .select('id, raw_points')
+        .eq('port_id', portId);
+
+      if (shapesError) throw shapesError;
+
+      // Zwracamy spójny obiekt struktury, który React bez problemu zdestrukturyzuje
+      return {
+        success: true,
+        port: portData,
+        shapes: shapesData
+      };
+    } catch (err: any) {
+      console.error('Błąd pobierania danych portu:', err);
+      return {
+        success: false,
+        message: err.message || 'Nie udało się pobrać danych portu z Supabase.'
+      };
+    }
+  });
+
 // main/index.ts
   ipcMain.handle('save-port-map', async (_event, payload) => {
     try {
