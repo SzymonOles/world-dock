@@ -5,6 +5,7 @@ out
 .DS_Store
 .eslintcache
 .idea
+.idea/*
 .vscode
 *.log*
 .editorconfig
