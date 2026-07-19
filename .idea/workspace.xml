@@ -1,9 +1,9 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <project version="4">
   <component name="ChangeListManager">
-    <list default="true" id="1fd3418d-73b9-4d26-bd98-40cff2a59212" name="Changes" comment="v3.2">
-      <change beforePath="$PROJECT_DIR$/.gitignore" beforeDir="false" afterPath="$PROJECT_DIR$/.gitignore" afterDir="false" />
+    <list default="true" id="1fd3418d-73b9-4d26-bd98-40cff2a59212" name="Changes" comment="v3.3">
       <change beforePath="$PROJECT_DIR$/.idea/workspace.xml" beforeDir="false" afterPath="$PROJECT_DIR$/.idea/workspace.xml" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/src/renderer/src/App.tsx" beforeDir="false" afterPath="$PROJECT_DIR$/src/renderer/src/App.tsx" afterDir="false" />
     </list>
     <option name="SHOW_DIALOG" value="false" />
     <option name="HIGHLIGHT_CONFLICTS" value="true" />
@@ -67,7 +67,7 @@
       <recent name="D:\Programs\world-dock\src\renderer\src" />
     </key>
   </component>
-  <component name="RunManager" selected="npm.dist">
+  <component name="RunManager" selected="npm.dev">
     <configuration name="dev" type="js.build_tools.npm" nameIsGenerated="true">
       <package-json value="$PROJECT_DIR$/package.json" />
       <command value="run" />
@@ -142,6 +142,14 @@
       <workItem from="1779359254581" duration="143000" />
       <workItem from="1779359408133" duration="168000" />
       <workItem from="1779359587344" duration="77000" />
+      <workItem from="1779359671868" duration="29000" />
+      <workItem from="1779359731744" duration="7000" />
+      <workItem from="1779359750523" duration="104000" />
+      <workItem from="1779372039492" duration="1108000" />
+      <workItem from="1780043867843" duration="1000" />
+      <workItem from="1781008750015" duration="64000" />
+      <workItem from="1783777898669" duration="41000" />
+      <workItem from="1784458810683" duration="2386000" />
     </task>
     <task id="LOCAL-00001" summary="init">
       <option name="closed" value="true" />
@@ -151,7 +159,15 @@
       <option name="project" value="LOCAL" />
       <updated>1777031187662</updated>
     </task>
-    <option name="localTasksCounter" value="2" />
+    <task id="LOCAL-00002" summary="v3.3">
+      <option name="closed" value="true" />
+      <created>1779359690717</created>
+      <option name="number" value="00002" />
+      <option name="presentableId" value="LOCAL-00002" />
+      <option name="project" value="LOCAL" />
+      <updated>1779359690717</updated>
+    </task>
+    <option name="localTasksCounter" value="3" />
     <servers />
   </component>
   <component name="TypeScriptGeneratedFilesManager">
@@ -187,6 +203,7 @@
   </component>
   <component name="VcsManagerConfiguration">
     <MESSAGE value="init" />
-    <option name="LAST_COMMIT_MESSAGE" value="init" />
+    <MESSAGE value="v3.3" />
+    <option name="LAST_COMMIT_MESSAGE" value="v3.3" />
   </component>
 </project>
