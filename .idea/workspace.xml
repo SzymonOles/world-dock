@@ -1,7 +1,14 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <project version="4">
   <component name="ChangeListManager">
-    <list default="true" id="1fd3418d-73b9-4d26-bd98-40cff2a59212" name="Changes" comment="v3.3">
+    <list default="true" id="1fd3418d-73b9-4d26-bd98-40cff2a59212" name="Changes" comment="Implemented physics layer">
+      <change afterPath="$PROJECT_DIR$/src/renderer/src/components/ConfigScreen.tsx" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/src/renderer/src/components/EditorView.tsx" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/src/renderer/src/components/PortSelector.tsx" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/src/renderer/src/components/SimulationView.tsx" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/src/renderer/src/constants.ts" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/src/renderer/src/types.ts" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/src/renderer/src/utils/geoUtils.ts" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/.idea/workspace.xml" beforeDir="false" afterPath="$PROJECT_DIR$/.idea/workspace.xml" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/src/renderer/src/App.tsx" beforeDir="false" afterPath="$PROJECT_DIR$/src/renderer/src/App.tsx" afterDir="false" />
     </list>
@@ -149,7 +156,10 @@
       <workItem from="1780043867843" duration="1000" />
       <workItem from="1781008750015" duration="64000" />
       <workItem from="1783777898669" duration="41000" />
-      <workItem from="1784458810683" duration="2386000" />
+      <workItem from="1784458810683" duration="3192000" />
+      <workItem from="1784552532897" duration="768000" />
+      <workItem from="1784553319027" duration="1382000" />
+      <workItem from="1784555458138" duration="974000" />
     </task>
     <task id="LOCAL-00001" summary="init">
       <option name="closed" value="true" />
@@ -167,7 +177,15 @@
       <option name="project" value="LOCAL" />
       <updated>1779359690717</updated>
     </task>
-    <option name="localTasksCounter" value="3" />
+    <task id="LOCAL-00003" summary="Implemented physics layer">
+      <option name="closed" value="true" />
+      <created>1784461325234</created>
+      <option name="number" value="00003" />
+      <option name="presentableId" value="LOCAL-00003" />
+      <option name="project" value="LOCAL" />
+      <updated>1784461325234</updated>
+    </task>
+    <option name="localTasksCounter" value="4" />
     <servers />
   </component>
   <component name="TypeScriptGeneratedFilesManager">
@@ -204,6 +222,7 @@
   <component name="VcsManagerConfiguration">
     <MESSAGE value="init" />
     <MESSAGE value="v3.3" />
-    <option name="LAST_COMMIT_MESSAGE" value="v3.3" />
+    <MESSAGE value="Implemented physics layer" />
+    <option name="LAST_COMMIT_MESSAGE" value="Implemented physics layer" />
   </component>
 </project>
